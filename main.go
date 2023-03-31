@@ -208,7 +208,7 @@ func sendToScroll(ctx context.Context, mainAccountPath, subAccountPath string) e
 
 	time.Sleep(10 * time.Second)
 
-	// 转完之后，查看一下子账户的余额
+	//转完之后，查看一下子账户的余额
 	getBalance(ctx, subAccountAddress)
 
 	// 打开keyfile
@@ -282,12 +282,12 @@ func sendToScroll(ctx context.Context, mainAccountPath, subAccountPath string) e
 
 	// 子账户将余额的90%转回到主账户
 	balance, _ := getBalance(ctx, subAccountAddress)
-	a := new(big.Int).Mul(balance, big.NewInt(96))
+	a := new(big.Int).Mul(balance, big.NewInt(95))
 	b := new(big.Int).Div(a, big.NewInt(100))
 	sendETH(ctx, subAccountPath, []string{mainAccountAddress}, b)
+	log.Println("子账户转账到主账户交易完成")
 	time.Sleep(10 * time.Second)
 
-	log.Println("子账户转账到主账户交易完成")
 	return nil
 }
 
