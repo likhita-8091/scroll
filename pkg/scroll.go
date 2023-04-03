@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	scroll_abi "scroll/abi"
+	"scroll/abi/lp"
 	"scroll/abi/swap"
 	"scroll/abi/usdc"
 	"scroll/abi/weth"
@@ -29,6 +30,7 @@ type ScrollClient struct {
 	SwapABI     *swap.SwapABI
 	WEthABI     *weth.WEthABI
 	L2ABI       *scroll_abi.L2ABI
+	LPABI       *lp.LPABI
 }
 
 func NewScrollClient(ctx context.Context, url string) (*ScrollClient, error) {
@@ -60,27 +62,32 @@ func (s *ScrollClient) init() error {
 	// 加载abi
 	err := s.SetUSDCABI("0xeF71Ddc12Bac8A2ba0b9068b368189FFa2628942")
 	if err != nil {
-		return fmt.Errorf("new usdc abi error：%v\n", err.Error())
+		return err
 	}
 
 	err = s.SetScrollABI("0x6d79Aa2e4Fbf80CF8543Ad97e294861853fb0649")
 	if err != nil {
-		return fmt.Errorf("new l2 abi error：%v\n", err.Error())
+		return err
 	}
 
 	err = s.SetTestUsdcABI(UsdcCoin)
 	if err != nil {
-		return fmt.Errorf("new test usdc abi error：%v\n", err.Error())
+		return err
 	}
 
 	err = s.SetSwapABI("0xD9880690bd717189cC3Fbe7B9020F27fae7Ac76F")
 	if err != nil {
-		return fmt.Errorf("new test usdc abi error：%v\n", err.Error())
+		return err
 	}
 
 	err = s.SetWEthABI(WEthCoin)
 	if err != nil {
-		return fmt.Errorf("new test usdc abi error：%v\n", err.Error())
+		return err
+	}
+
+	err = s.SetLPABI("0xbd1A5920303F45d628630E88aFbAF012bA078F37")
+	if err != nil {
+		return err
 	}
 
 	log.Println("load usdc abi ok")
@@ -150,7 +157,7 @@ func (s *ScrollClient) SetSwapABI(contractAddress string) error {
 
 	a, err := swap.NewSwapABI(to, s.Cli)
 	if err != nil {
-		return fmt.Errorf("load test usdc abi error: %v\n", err.Error())
+		return fmt.Errorf("load swap abi error: %v\n", err.Error())
 	}
 	s.SwapABI = a
 	return nil
@@ -162,8 +169,20 @@ func (s *ScrollClient) SetWEthABI(contractAddress string) error {
 
 	a, err := weth.NewWEthABI(to, s.Cli)
 	if err != nil {
-		return fmt.Errorf("load test usdc abi error: %v\n", err.Error())
+		return fmt.Errorf("load weth abi error: %v\n", err.Error())
 	}
 	s.WEthABI = a
+	return nil
+}
+
+// 0xbd1A5920303F45d628630E88aFbAF012bA078F37
+func (s *ScrollClient) SetLPABI(contractAddress string) error {
+	to := common.HexToAddress(contractAddress)
+
+	a, err := lp.NewLPABI(to, s.Cli)
+	if err != nil {
+		return fmt.Errorf("load lp abi error: %v\n", err.Error())
+	}
+	s.LPABI = a
 	return nil
 }

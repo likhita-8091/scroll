@@ -13,9 +13,7 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"flag"
-	"fmt"
 	redis "github.com/go-redis/redis/v8"
 	"github.com/scroll-tech/go-ethereum/accounts/abi/bind"
 	"github.com/scroll-tech/go-ethereum/accounts/keystore"
@@ -67,21 +65,6 @@ const (
 const dirPerm = 0700
 
 // 获取账户
-func getAccount(keyfile string, password string) error {
-	keyJSON, err := os.ReadFile(keyfile)
-	if err != nil {
-		log.Fatalf("Could not read key file: %v", err)
-	}
-	key, err := keystore.DecryptKey(keyJSON, password)
-	if err != nil {
-		log.Fatalf("Could not decrypt key file: %v", err)
-	}
-
-	buf := crypto.FromECDSA(key.PrivateKey)
-	fmt.Println("公钥", key.Address.String())
-	fmt.Println("私钥", hex.EncodeToString(buf))
-	return nil
-}
 
 // 设置客户端
 func setGoerliClient(url string) {

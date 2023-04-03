@@ -14,6 +14,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"scroll/abi/lp"
 	"scroll/abi/swap"
 	"strings"
 	"time"
@@ -88,9 +89,6 @@ func (a *Account) PrintReceipt(receipt *types.Receipt) {
 	case types.ReceiptStatusSuccessful:
 		msg = "成功"
 	}
-
-	j, _ := receipt.MarshalJSON()
-	fmt.Println(string(j))
 
 	if len(receipt.ReturnValue) != 0 {
 		log.Printf("[%v] 交易结果(%v): %v\n", a.Address().String(), msg, receipt.ReturnValue)
@@ -179,7 +177,11 @@ func (a *Account) ClaimUSDC() error {
 }
 
 // ApproveUSDC 批准usdc
-func (a *Account) ApproveUSDC(amount *big.Int) error {
+/*
+0xd9880690bd717189cc3fbe7b9020f27fae7ac76f
+0xbd1a5920303f45d628630e88afbaf012ba078f37
+*/
+func (a *Account) ApproveUSDC(toAddress string, amount *big.Int) error {
 
 	opts, err := a.makeScrollChainTxOpts()
 	if err != nil {
@@ -199,7 +201,7 @@ func (a *Account) ApproveUSDC(amount *big.Int) error {
 	opts.GasLimit = 250000
 	opts.Nonce = nonce
 	opts.GasPrice = price
-	approve, err := a.scrollCli.TestUSDCABI.Approve(opts, common.HexToAddress("0xd9880690bd717189cc3fbe7b9020f27fae7ac76f"), amount)
+	approve, err := a.scrollCli.TestUSDCABI.Approve(opts, common.HexToAddress(toAddress), amount)
 	if err != nil {
 		return err
 	}
@@ -213,6 +215,48 @@ func (a *Account) ApproveUSDC(amount *big.Int) error {
 
 	a.PrintReceipt(mined)
 	log.Println("approve usdc ok")
+
+	return nil
+}
+
+/*
+ApproveETH 批准weth
+0xbd1a5920303f45d628630e88afbaf012ba078f37
+*/
+func (a *Account) ApproveETH(toAddress string, amount *big.Int) error {
+
+	opts, err := a.makeScrollChainTxOpts()
+	if err != nil {
+		return err
+	}
+
+	nonce, err := a.GetNonce()
+	if err != nil {
+		return err
+	}
+
+	price, err := a.GetGasPrice()
+	if err != nil {
+		return err
+	}
+
+	opts.GasLimit = 250000
+	opts.Nonce = nonce
+	opts.GasPrice = price
+	approve, err := a.scrollCli.WEthABI.Approve(opts, common.HexToAddress(toAddress), amount)
+	if err != nil {
+		return err
+	}
+
+	a.PrintTx(approve, "approve weth")
+
+	mined, err := a.waitMined(approve)
+	if err != nil {
+		return err
+	}
+
+	a.PrintReceipt(mined)
+	log.Println("approve weth ok")
 
 	return nil
 }
@@ -271,11 +315,6 @@ func (a *Account) SwapUSDC2ETH(amount *big.Int) ([]byte, error) {
 }
 
 func (a *Account) MultiCall(amount *big.Int) error {
-	//err := a.ApproveUSDC(amount)
-	//if err != nil {
-	//	return fmt.Errorf("approve usdc error: %v\n", err.Error())
-	//}
-
 	param, err := a.SwapUSDC2ETH(amount)
 	if err != nil {
 		return err
@@ -293,15 +332,8 @@ func (a *Account) MultiCall(amount *big.Int) error {
 		return err
 	}
 
-	//price, err := a.GetGasPrice()
-	//if err != nil {
-	//	return err
-	//}
-
 	opts.GasLimit = 150000
 	opts.Nonce = nonce
-	//opts.Value = big.NewInt(10000000000)
-	//opts.GasPrice = price
 
 	deadLine := time.Now().Add(5 * time.Minute).Unix()
 
@@ -320,6 +352,85 @@ func (a *Account) MultiCall(amount *big.Int) error {
 	a.PrintReceipt(mined)
 	time.Sleep(2 * time.Second)
 	log.Println("swap usdc to weth ok")
+	return nil
+}
+
+func (a *Account) AddLP() error {
+	// 批准：授权人、数量
+	//toAddress := "0xbd1a5920303f45d628630e88afbaf012ba078f37"
+	//a1 := big.NewInt(1000000000000000000)
+	//b1 := new(big.Int).Mul(a1, big.NewInt(10000))
+	//// 批准usdc
+	//err := a.ApproveUSDC(toAddress, b1)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//time.Sleep(2 * time.Second)
+	//
+	//// 批准weth
+	//err = a.ApproveETH(toAddress, b1)
+	//if err != nil {
+	//	return err
+	//}
+	//time.Sleep(2 * time.Second)
+
+	opts, err := a.makeScrollChainTxOpts()
+	if err != nil {
+		return err
+	}
+
+	nonce, err := a.GetNonce()
+	if err != nil {
+		return err
+	}
+
+	opts.GasLimit = 500000
+	opts.Nonce = nonce
+
+	deadline := time.Now().Add(5 * time.Minute).Unix()
+
+	token0 := new(big.Int).Mul(big.NewInt(1300000000000000000), big.NewInt(1000))
+	token0Min := new(big.Int).Mul(token0, big.NewInt(9))
+	token0Min = new(big.Int).Div(token0Min, big.NewInt(10))
+
+	// 1.3*1000=1300
+	token1 := new(big.Int).Div(token0, big.NewInt(520000))
+	token1Min := new(big.Int).Mul(token1, big.NewInt(9))
+	token1Min = new(big.Int).Div(token1Min, big.NewInt(10))
+	params := lp.INonfungiblePositionManagerMintParams{
+		Token0:         common.HexToAddress(UsdcCoin),
+		Token1:         common.HexToAddress(WEthCoin),
+		Fee:            big.NewInt(500),
+		TickLower:      big.NewInt(-887270),
+		TickUpper:      big.NewInt(887270),
+		Amount0Desired: token0,
+		Amount1Desired: token1,
+		Amount0Min:     token0Min,
+		Amount1Min:     token1Min,
+		Recipient:      a.Address(),
+		Deadline:       big.NewInt(deadline),
+	}
+
+	mint, err := a.scrollCli.LPABI.Mint(opts, params)
+	if err != nil {
+		return err
+	}
+
+	a.PrintTx(mint, "add uni lp")
+
+	mined, err := a.waitMined(mint)
+	if err != nil {
+		return err
+	}
+
+	a.PrintReceipt(mined)
+	if mined.Status == types.ReceiptStatusFailed {
+		return fmt.Errorf("add uni lp 失败\n")
+	}
+
+	log.Println("add uni lp ok")
+	time.Sleep(3 * time.Second)
 	return nil
 }
 
