@@ -1,24 +1,27 @@
 module scroll
 
-go 1.19
+go 1.18
 
 require (
-	github.com/ethereum/go-ethereum v1.10.13
-	github.com/google/uuid v1.1.5
+	github.com/go-redis/redis/v8 v8.11.5
+	github.com/google/uuid v1.2.0
 	github.com/scroll-tech/go-ethereum v1.10.14-0.20230330151051-b986f1ea7b97
 )
 
 require (
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect
 	github.com/btcsuite/btcd v0.20.1-beta // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
-	github.com/deckarep/golang-set v0.0.0-20180603214616-504e848d77ea // indirect
+	github.com/deckarep/golang-set v1.8.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/ethereum/go-ethereum v1.10.21 // indirect
 	github.com/go-ole/go-ole v1.2.1 // indirect
-	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/iden3/go-iden3-crypto v0.0.12 // indirect
+	github.com/mingjingc/abi-decoder v0.0.0-20220815110539-df88f6d95977 // indirect
 	github.com/rjeczalik/notify v0.9.1 // indirect
 	github.com/scroll-tech/zktrie v0.5.2 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect

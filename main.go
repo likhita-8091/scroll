@@ -13,12 +13,10 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/rand"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	redis "github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"github.com/scroll-tech/go-ethereum/accounts/abi/bind"
 	"github.com/scroll-tech/go-ethereum/accounts/keystore"
 	"github.com/scroll-tech/go-ethereum/common"
@@ -26,7 +24,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/ethclient"
 	"log"
-	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -36,75 +33,38 @@ import (
 	"time"
 )
 
-var goerliCli *ethclient.Client
-var ScrollCli *ethclient.Client
-var abi = new(scroll_abi.ScrollABI)
-var L2abi = new(scroll_abi.L2ABI)
-var chainID *big.Int
-var ScrollchainID *big.Int
-var KeyStoreDir = ""
-var redisCli = new(redis.Client)
+var (
+	goerliCli *ethclient.Client
+	ScrollCli *ethclient.Client
+
+	abi   = new(scroll_abi.ScrollABI)
+	L2abi = new(scroll_abi.L2ABI)
+
+	chainID       *big.Int
+	ScrollchainID *big.Int
+
+	KeyStoreDir = ""
+	redisCli    = new(redis.Client)
+)
+var (
+	M2S     bool
+	Bridge1 bool
+	S2M     bool
+
+	// 模式
+	Model string
+)
 
 const (
 	GoerliAPI = "https://rpc.ankr.com/eth_goerli"
+	ScrollAPI = "https://alpha-rpc.scroll.io/l2"
 	scryptN   = keystore.LightScryptN
 	scryptP   = keystore.LightScryptP
 
 	Password = "jw"
 )
+
 const dirPerm = 0700
-
-func storeKey(filename string, key *keystore.Key, auth string) error {
-	keyJson, err := keystore.EncryptKey(key, auth, scryptN, scryptP)
-
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, keyJson, dirPerm)
-}
-
-func newKey(dir string) (*keystore.Key, error) {
-	privateKeyECDSA, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-
-	id, err := uuid.NewRandom()
-	if err != nil {
-		panic(fmt.Sprintf("Could not create random uuid: %v", err))
-	}
-	key := &keystore.Key{
-		Id:         id,
-		Address:    crypto.PubkeyToAddress(privateKeyECDSA.PublicKey),
-		PrivateKey: privateKeyECDSA,
-	}
-
-	prvPath := filepath.Join(dir, key.Address.String()+"_prv")
-	err = crypto.SaveECDSA(prvPath, privateKeyECDSA)
-	if err != nil {
-		return nil, err
-	}
-
-	return key, nil
-}
-
-// 创建账户
-func createAccount(dir string, password string) (keyfile string) {
-	key, err := newKey(dir)
-	if err != nil {
-		panic(err)
-	}
-
-	filename := filepath.Join(dir, key.Address.String())
-	err = storeKey(filename, key, password)
-	if err != nil {
-		log.Fatal("create account error：", err.Error())
-	}
-
-	fmt.Printf("Public address of the key:   %s\n", key.Address.Hex())
-	fmt.Printf("Path of the secret key file: %s\n\n", filename)
-	return filename
-}
 
 // 获取账户
 func getAccount(keyfile string, password string) error {
@@ -140,8 +100,7 @@ func setGoerliClient(url string) {
 	goerliCli = client
 }
 
-func setScrollClient() {
-	url := "https://alpha-rpc.scroll.io/l2"
+func setScrollClient(url string) {
 	client, err := ethclient.DialContext(context.Background(), url)
 	if err != nil {
 		log.Fatal(err)
@@ -177,10 +136,8 @@ func getScrollBalance(ctx context.Context, address string) (*big.Int, error) {
 		return nil, err
 	}
 
-	a := new(big.Int).SetInt64(int64(math.Pow(10, 18)))
-	fmt.Println(address+" 余额(ETH)：", balance.Div(balance, a))
-
-	return nil, nil
+	log.Println(address+" 余额(ETH)：", balance.String())
+	return balance, nil
 }
 
 func sendToScroll(ctx context.Context, mainAccountPath, subAccountPath string) error {
@@ -188,121 +145,160 @@ func sendToScroll(ctx context.Context, mainAccountPath, subAccountPath string) e
 	subAccountAddress := filepath.Base(subAccountPath)
 	log.Printf("==========[%v]===========\n", subAccountAddress)
 
-	//a, err := redisCli.SIsMember(ctx, ETHToScrollOk, subAccountAddress).Result()
-	//if err != nil {
-	//	log.Println("skip subAccountAddress address", subAccountAddress)
-	//	return nil
-	//}
-	//
-	//if a {
-	//	log.Println("skip to address", subAccountAddress)
-	//	return nil
-	//}
+	a, err := redisCli.SIsMember(ctx, ETHToScrollOk, subAccountAddress).Result()
+	if err != nil {
+		log.Println("skip subAccountAddress address", subAccountAddress)
+		return nil
+	}
+
+	if a {
+		log.Println("skip to address", subAccountAddress)
+		return nil
+	}
 
 	//发送跨链交易之前，如果子账户余额金额太小，比如0.1eth，会报错。所以先用主账户转到子账户。
-	num1 := big.NewInt(1300000000000000000)
-	log.Printf("%v send %v eth to %v\n", mainAccountAddress, num1, subAccountAddress)
-	sendETH(ctx, mainAccountPath, []string{subAccountAddress}, num1)
+	if M2S {
+		num1 := big.NewInt(1300000000000000000)
+		log.Printf("%v send %v eth to %v\n", mainAccountAddress, num1, subAccountAddress)
+		sendETH(ctx, mainAccountPath, []string{subAccountAddress}, num1)
 
-	log.Println("主账户转账到子账户交易完成", mainAccountAddress, "----", subAccountAddress)
+		log.Println("主账户转账到子账户交易完成", mainAccountAddress, "----", subAccountAddress)
 
-	time.Sleep(10 * time.Second)
+		time.Sleep(7 * time.Second)
+	}
 
 	//转完之后，查看一下子账户的余额
 	getBalance(ctx, subAccountAddress)
 
-	// 打开keyfile
-	keyJson, err := os.ReadFile(subAccountPath)
-	if err != nil {
-		log.Printf("Could not read key file: %v\n", err)
-		return nil
+	var nonce uint64
+
+	if Bridge1 {
+		// 打开keyfile
+		keyJson, err := os.ReadFile(subAccountPath)
+		if err != nil {
+			log.Printf("Could not read key file: %v\n", err)
+			return err
+		}
+
+		txIDOpts, err := bind.NewTransactorWithChainID(strings.NewReader(string(keyJson)), Password, chainID)
+		if err != nil {
+			log.Println("new key store tx error", err.Error())
+			return err
+		}
+
+		nonce, err = goerliCli.PendingNonceAt(ctx, txIDOpts.From)
+		if err != nil {
+			log.Println("get nonce error", err.Error(), subAccountAddress)
+			return err
+		}
+
+		log.Println("nonce", nonce)
+
+		gasPrice, err := goerliCli.SuggestGasPrice(ctx)
+		if err != nil {
+			log.Printf("[%v]get price error：%v\n", subAccountAddress, err)
+			return err
+		}
+
+		log.Println("gas price", gasPrice.String())
+
+		// 设置gas limit
+		txIDOpts.GasLimit = uint64(300000)
+		// 设置value
+		txIDOpts.Value = big.NewInt(120000000000000000)
+
+		// 设置nonce
+		txIDOpts.Nonce = big.NewInt(int64(nonce))
+
+		res, err := abi.DepositETH(txIDOpts, big.NewInt(110000000000000000), new(big.Int).SetUint64(uint64(40000)))
+		if err != nil {
+			log.Println("call Deposit Eth error: ", err.Error())
+			return err
+		}
+
+		data, err := res.MarshalJSON()
+		if err != nil {
+			log.Println("marshal json error: ", err.Error())
+			return err
+		}
+		log.Println("跨链交易的响应数据：", string(data))
+
+		_, err = bind.WaitMined(ctx, goerliCli, res)
+		if err != nil {
+			log.Println("wait error", err.Error())
+			return err
+		}
+
+		log.Println("wait 跨链交易完成")
+		time.Sleep(10 * time.Second)
 	}
 
-	txIDOpts, err := bind.NewTransactorWithChainID(strings.NewReader(string(keyJson)), Password, chainID)
-	if err != nil {
-		log.Println("new key store tx error", err.Error())
-		return nil
+	if S2M {
+		// 子账户将余额的90%转回到主账户
+		balance, _ := getBalance(ctx, subAccountAddress)
+
+		var a1 *big.Int
+		var ok bool
+
+		// 循环五次
+		for i := 0; i < 5; i++ {
+			if i == 0 {
+				//a1 = new(big.Int).Mul(balance, big.NewInt(97))
+				if new(big.Int).Div(balance, big.NewInt(125000000000)).Int64() >= 1 {
+					a1 = new(big.Int).Mul(balance, big.NewInt(98))
+				} else {
+					a1 = new(big.Int).Mul(balance, big.NewInt(95))
+				}
+			} else if i == 1 {
+				a1 = new(big.Int).Mul(balance, big.NewInt(94))
+			} else if i == 2 {
+				a1 = new(big.Int).Mul(balance, big.NewInt(93))
+			} else if i == 3 {
+				a1 = new(big.Int).Mul(balance, big.NewInt(92))
+			} else if i == 4 {
+				a1 = new(big.Int).Mul(balance, big.NewInt(91))
+			}
+
+			b1 := new(big.Int).Div(a1, big.NewInt(100))
+			err := sendETH(ctx, subAccountPath, []string{mainAccountAddress}, b1, nonce)
+			if err != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			} else {
+				ok = true
+				break
+			}
+		}
+
+		if !ok {
+			log.Fatal("子账户转账到主账户交易失败")
+		}
+
+		err = redisCli.SAdd(ctx, ETHToScrollOk, subAccountAddress).Err()
+		if err != nil {
+			log.Fatal("save redis error", err.Error())
+			return nil
+		}
+
+		log.Println("子账户转账到主账户交易完成")
+		time.Sleep(8 * time.Second)
 	}
-
-	nonce, err := goerliCli.PendingNonceAt(ctx, txIDOpts.From)
-	if err != nil {
-		log.Println("get nonce error", err.Error(), subAccountAddress)
-		return nil
-	}
-
-	log.Println("nonce", nonce)
-
-	gasPrice, err := goerliCli.SuggestGasPrice(ctx)
-	if err != nil {
-		log.Printf("[%v]get price error：%v\n", subAccountAddress, err)
-		return nil
-	}
-
-	log.Println("gas price", gasPrice.String())
-
-	// 设置gas limit
-	txIDOpts.GasLimit = uint64(300000)
-	// 设置value
-	txIDOpts.Value = big.NewInt(120000000000000000)
-	//txIDOpts.GasPrice = big.NewInt(250059291519)
-	//txIDOpts.GasTipCap = tip
-	//txIDOpts.GasFeeCap = gasFeeCap
-
-	// 设置nonce
-	txIDOpts.Nonce = big.NewInt(int64(nonce))
-
-	res, err := abi.DepositETH(txIDOpts, big.NewInt(110000000000000000), new(big.Int).SetUint64(uint64(40000)))
-	if err != nil {
-		log.Println("call Deposit Eth error: ", err.Error())
-		time.Sleep(3 * time.Second)
-		return nil
-	}
-
-	data, err := res.MarshalJSON()
-	if err != nil {
-		log.Println("marshal json error: ", err.Error())
-		return nil
-	}
-	log.Println("跨链交易的响应数据：", string(data))
-
-	_, err = bind.WaitMined(ctx, goerliCli, res)
-	if err != nil {
-		log.Println("wait error", err.Error())
-		return nil
-	}
-
-	err = redisCli.SAdd(ctx, ETHToScrollOk, subAccountAddress).Err()
-	if err != nil {
-		log.Println("save redis error", err.Error())
-		return nil
-	}
-
-	log.Println("wait 跨链交易完成")
-	time.Sleep(10 * time.Second)
-
-	// 子账户将余额的90%转回到主账户
-	balance, _ := getBalance(ctx, subAccountAddress)
-	a := new(big.Int).Mul(balance, big.NewInt(95))
-	b := new(big.Int).Div(a, big.NewInt(100))
-	sendETH(ctx, subAccountPath, []string{mainAccountAddress}, b)
-	log.Println("子账户转账到主账户交易完成")
-	time.Sleep(10 * time.Second)
 
 	return nil
 }
 
 /*
-SendToScroll 发送交易
+SendToScroll 转账到scroll
 
 	前提：主账户eth余额大于3
 	1、遍历keystore目录下的1、2、3...文件夹下的账户
 	2、主账户转账到该账户：转1.3枚eth
 	3、该账户发起跨链交易：交易的value(0.12) > amount(0.11)，不然会失败
-	4、该账户将主账户发来的余额转回到主账户，1.3-0.12=1.11
+	4、该账户的余额的90%+转回到主账户
 */
 func SendToScroll(ctx context.Context, mainAccountPath string) {
 
-	for i := 5; i < 11; i++ {
+	for i := 1; i < 11; i++ {
 
 		dir1 := filepath.Join(KeyStoreDir, strconv.Itoa(i))
 		log.Println("遍历文件夹：", dir1)
@@ -318,6 +314,7 @@ func SendToScroll(ctx context.Context, mainAccountPath string) {
 			}
 
 			if !strings.Contains(path, "_prv") {
+				log.Println("send to scroll", path)
 				sendToScroll(ctx, mainAccountPath, path)
 			}
 			return nil
@@ -330,7 +327,7 @@ func SendToScroll(ctx context.Context, mainAccountPath string) {
 }
 
 // 加载abi合约
-func setABI(toAddress string) {
+func setETHABI(toAddress string) {
 	var err error
 	to := common.HexToAddress(toAddress)
 
@@ -341,7 +338,7 @@ func setABI(toAddress string) {
 	}
 }
 
-func setL2(toAddress string) {
+func setScrollABI(toAddress string) {
 	var err error
 	to := common.HexToAddress(toAddress)
 
@@ -352,7 +349,8 @@ func setL2(toAddress string) {
 	}
 }
 
-func init() {
+func Before() {
+
 	// 设置keystore目录
 	dir, _ := os.Getwd()
 	KeyStoreDir = filepath.Join(dir, "./keystore")
@@ -365,10 +363,6 @@ func init() {
 	//	}
 	//}
 
-	// 设置客户端
-	setGoerliClient(GoerliAPI)
-	setScrollClient()
-
 	// 设置redis
 	redisCli = redis.NewClient(&redis.Options{
 		Addr: "127.0.0.1:6379",
@@ -379,134 +373,21 @@ func init() {
 	}
 
 	// 设置scroll客户端
-	setABI("0xe5E30E7c24e4dFcb281A682562E53154C15D3332")
-	setL2("0x6d79Aa2e4Fbf80CF8543Ad97e294861853fb0649")
+	if Model == "ETH" {
+		setGoerliClient(GoerliAPI)
+		setETHABI("0xe5E30E7c24e4dFcb281A682562E53154C15D3332")
 
+	} else if Model == "Scroll" {
+		setScrollClient(ScrollAPI)
+		setScrollABI("0x6d79Aa2e4Fbf80CF8543Ad97e294861853fb0649")
+	}
 }
 
-// scroll转账到以太坊
-func ScrollSendToETH(ctx context.Context, path string) error {
-	from := filepath.Base(path)
-	log.Printf("==========[%v]===========\n", from)
-
-	//a, err := redisCli.SIsMember(ctx, ETHToScrollOk, from).Result()
-	//if err != nil {
-	//	log.Println("skip from address", from)
-	//	return nil
-	//}
-	//
-	//if a {
-	//	log.Println("skip to address", from)
-	//	return nil
-	//}
-
-	log.Println("send eth 0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B to", from)
-	// 发送之前，如果账户余额金额太小，比如0.1,eth，会报错。所以先用其余账户转到该账户。
-	//sendETH(ctx, "C:\\Users\\jw199\\code\\jw\\scroll\\keystore\\0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B", "0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B", []string{from}, big.NewInt(1200000000000000000))
-
-	//time.Sleep(10 * time.Second)
-
-	getScrollBalance(ctx, from)
-
-	// 打开keyfile
-	keyJson, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("Could not read key file: %v\n", err)
-		return nil
+func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string, amount *big.Int, opt ...uint64) error {
+	var nonce1 uint64
+	if len(opt) != 0 {
+		nonce1 = opt[0]
 	}
-
-	txIDOpts, err := bind.NewTransactorWithChainID(strings.NewReader(string(keyJson)), Password, ScrollchainID)
-	if err != nil {
-		log.Println("new key store tx error", err.Error())
-		return nil
-	}
-
-	nonce, err := ScrollCli.PendingNonceAt(ctx, txIDOpts.From)
-	if err != nil {
-		log.Println("get nonce error", err.Error(), from)
-		return nil
-	}
-
-	log.Println("nonce", nonce)
-
-	gasPrice, err := ScrollCli.SuggestGasPrice(ctx)
-	if err != nil {
-		log.Printf("[%v]get price error：%v\n", from, err)
-		return nil
-	}
-
-	log.Println("gas price", gasPrice.String())
-
-	//tip, err := goerliCli.SuggestGasTipCap(ctx)
-	//if err != nil {
-	//	log.Println("get gas tip cap error", err.Error())
-	//	return nil
-	//}
-
-	//log.Println("get gas tip cap", tip)
-	//
-	//head, err := goerliCli.HeaderByNumber(ctx, nil)
-	//if err != nil {
-	//	log.Println("get header head error", err.Error())
-	//	return err
-	//}
-
-	//gasFeeCap := new(big.Int).Add(
-	//	tip,
-	//	new(big.Int).Mul(head.BaseFee, big.NewInt(2)),
-	//)
-	//
-	//log.Println("gas fee cap", gasFeeCap)
-
-	// 设置gas
-	txIDOpts.GasLimit = uint64(307936)
-	// 设置value
-	txIDOpts.Value = big.NewInt(40000000000000000)
-	//txIDOpts.GasPrice = big.NewInt(250059291519)
-	//txIDOpts.GasTipCap = tip
-	//txIDOpts.GasFeeCap = gasFeeCap
-
-	// 设置nonce
-	txIDOpts.Nonce = big.NewInt(int64(nonce))
-
-	res, err := L2abi.WithdrawETH0(txIDOpts, big.NewInt(1000000000000000), new(big.Int).SetUint64(uint64(160000)))
-	if err != nil {
-		log.Println("call Deposit Eth error: ", err.Error())
-		time.Sleep(3 * time.Second)
-		return nil
-	}
-
-	log.Println("res value", res.Value().String())
-
-	data, err := res.MarshalJSON()
-	if err != nil {
-		log.Println("marshal json error: ", err.Error())
-		return nil
-	}
-	log.Println("res data", string(data))
-	_, err = bind.WaitMined(ctx, ScrollCli, res)
-	if err != nil {
-		log.Println("wait error", err.Error())
-		return nil
-	}
-
-	//err = redisCli.SAdd(ctx, ETHToScrollOk, from).Err()
-	//if err != nil {
-	//	log.Println("save redis error", err.Error())
-	//	return nil
-	//}
-
-	log.Println("wait ok")
-	time.Sleep(10 * time.Second)
-
-	// 再发送回去
-	//sendETH(ctx, path, from, []string{"0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B"}, big.NewInt(1239990000000000000))
-
-	time.Sleep(10 * time.Second)
-	return nil
-}
-
-func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string, amount *big.Int) {
 
 	fromAddress := filepath.Base(fromAddressPath)
 
@@ -514,21 +395,21 @@ func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string
 	_, err := getBalance(ctx, fromAddress)
 	if err != nil {
 		log.Println("获取余额失败")
-		return
+		return err
 	}
 
 	// 打开keyfile
 	keyJson, err := os.ReadFile(fromAddressPath)
 	if err != nil {
 		log.Printf("Could not read key file: %v\n", err.Error())
-		return
+		return err
 	}
 
 	// 获取公钥、私钥
 	key, err := keystore.DecryptKey(keyJson, Password)
 	if err != nil {
 		log.Printf("Could not decrypt key file: %v\n", err.Error())
-		return
+		return err
 	}
 
 	for _, to := range sendToAddress {
@@ -544,18 +425,22 @@ func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string
 		//}
 
 		// 获取nonce
-		time.Sleep(1 * time.Second)
 		nonce, err := goerliCli.PendingNonceAt(ctx, key.Address)
 		if err != nil {
 			log.Println("get nonce error", err.Error())
-			return
+			return err
+		}
+
+		log.Println("get nonce--- ", nonce)
+		if nonce == nonce1 {
+			nonce += 1
 		}
 
 		// 获取gas价格
 		gasPrice, err := goerliCli.SuggestGasPrice(ctx)
 		if err != nil {
 			log.Println("get gas price error")
-			return
+			return err
 		}
 
 		log.Println("gas price", gasPrice.String())
@@ -565,7 +450,7 @@ func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string
 		// 构造交易
 		baseTx := &types.LegacyTx{
 			Nonce:    nonce,
-			GasPrice: big.NewInt(300584513913),
+			GasPrice: new(big.Int).Add(gasPrice, big.NewInt(88120347580)),
 			Gas:      uint64(40000),
 			To:       &toAddress,
 			Value:    amount, // 0.1 eth
@@ -577,33 +462,33 @@ func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string
 		signature, err := crypto.Sign(signer.Hash(tx).Bytes(), key.PrivateKey)
 		if err != nil {
 			log.Println("生成signature失败", err.Error())
-			return
+			return err
 		}
 		signTx, err := tx.WithSignature(signer, signature)
 		if err != nil {
 			log.Println("签名失败", err.Error())
-			return
+			return err
 		}
 		log.Println("start send sign tx")
 
 		// 发送交易
 		err = goerliCli.SendTransaction(ctx, signTx)
 		if err != nil {
-			log.Fatal("send signTx error", err.Error())
-			return
+			log.Println("send signTx error", err.Error())
+			return err
 		}
 
 		data, err := signTx.MarshalJSON()
 		if err != nil {
 			log.Println("marshal json error: ", err.Error())
-			return
+			return err
 		}
-		log.Println("Tx data", string(data))
+		log.Println("转账交易的数据(Tx data)", string(data))
 
 		_, err = bind.WaitMined(ctx, goerliCli, signTx)
 		if err != nil {
 			log.Println("wait error", err.Error())
-			return
+			return err
 		}
 
 		//err = redisCli.SAdd(ctx, scrollAccountSendOk, to).Err()
@@ -613,8 +498,9 @@ func sendETH(ctx context.Context, fromAddressPath string, sendToAddress []string
 
 		log.Println("wait 转账 ok", fromAddress, to)
 
-		time.Sleep(3 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
+	return nil
 }
 
 func sendETH1(ctx context.Context, keyfile string, fromAddress string, to string) {
@@ -718,11 +604,6 @@ func sendETH1(ctx context.Context, keyfile string, fromAddress string, to string
 		return
 	}
 
-	err = redisCli.SAdd(ctx, scrollAccountSendOk1, fromAddress).Err()
-	if err != nil {
-		log.Println("save redis error", err.Error())
-	}
-
 	log.Println("wait ok")
 
 	time.Sleep(2 * time.Second)
@@ -732,7 +613,8 @@ func sendETH1(ctx context.Context, keyfile string, fromAddress string, to string
 const (
 	scrollAccountSendOk  = "scroll:account:send_ok"
 	scrollAccountSendOk1 = "scroll:account1:send_ok"
-	ETHToScrollOk        = "scroll:eth_to_scroll:send_ok"
+	ETHToScrollOk        = "scroll:eth_to_scroll:send_ok:1"
+	ScrollToETHOk        = "scroll:scroll_to_eth:send_ok:1"
 )
 
 func getAccounts() []string {
@@ -762,14 +644,44 @@ func getAccounts() []string {
 	return accountList
 }
 
+/*
+UniSwap uni swap3 交互
+	1、水龙头领取usdc稳定币
+		0x6ad3cfc30298fce6b448643e917755dc1e32b7c1183a74ba10adfd7a627d7eda
+	2、批准usdc稳定币：0xa0d71b9877f44c744546d649147e3f1e70a93760
+		https://blockscout.scroll.io/tx/0x302c5f7341099f68912f3fdbfa6b94b40acc68cf45304ee90c3e72a44f1573ea
+	3、usdc兑换一些weth
+		0x15231ddd679b2a613552c39e8b632bdfaf73fd6c43993786f68819488641694d
+	4、批准weth
+		0x77430f8d58b53285da616bd70c00c9a0e2d0b08626c0371d9d1518a58c65e480
+	5、批准usdc
+		0x38aee49e61539b6cfc9861f6cbe0ec556207d32665355000d2bb61dd3f6630e7
+	6、添加流动性
+		0x848bc3634e957e0c5fa8f79a1933045bd8cb76e5a67484920516e4b79d6d915d
+	7、移除流动性
+		0xe470e88120aa8e3b33fe845cc5a30bdad56dfd7f1b446d9ec4b176d68358074c
+*/
+
+func UniSwap() {
+
+}
+
 func main() {
 
-	// 创建账户
-	//for i := 1; i < 11; i++ {
-	//	for j := 1; j < 11; j++ {
-	//		createAccount(filepath.Join(KeyStoreDir, strconv.Itoa(i)), Password)
-	//	}
-	//}
+	model := flag.String("model", "ETH", "model: eth or scroll")
+
+	m := flag.Bool("m2s", true, "main account send to sub account")
+	s := flag.Bool("s2m", true, "sub account send to main account")
+	b1 := flag.Bool("b1", true, "send eth to scroll")
+
+	flag.Parse()
+
+	M2S = *m
+	S2M = *s
+	Bridge1 = *b1
+	Model = *model
+
+	Before()
 
 	// 获取账户列表
 	//accountList := getAccounts()
@@ -778,31 +690,8 @@ func main() {
 	// 批量转账
 	//sendETH(context.Background(), "0x719C4b1559Ec3f8BBceFE099c9F6Cd6d58d15988", sendToAddressList)
 
-	//for i := 1; i < 11; i++ {
-	//	dir1 := filepath.Join(KeyStoreDir, strconv.Itoa(i))
-	//	log.Println("遍历文件夹：", dir1)
-	//	err := filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
-	//		if err != nil {
-	//			log.Println(err)
-	//			log.Println(path)
-	//			return nil
-	//		}
-	//		if info.IsDir() {
-	//			log.Println("skip")
-	//			return nil
-	//		}
-	//		if !strings.Contains(path, "_prv") {
-	//			sendETH1(context.Background(), path, filepath.Base(path), "0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B")
-	//		}
-	//		return nil
-	//	})
-	//	if err != nil {
-	//		return
-	//	}
-	//}
-
 	// 导入账户
-	//err := getAccount(keyfile, Password)
+	//err := getAccount(keyfile, password)
 	//if err != nil {
 	//	log.Fatal(err)
 	//	return
@@ -817,9 +706,9 @@ func main() {
 	//
 	//fmt.Println(balance.String())
 
-	// 批量转账到scroll
-	//SendToScroll(context.Background(), accountList)
-	SendToScroll(context.Background(), filepath.Join(KeyStoreDir, "0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B"))
+	if Model == "ETH" {
+		SendToScroll(context.Background(), filepath.Join(KeyStoreDir, "0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B"))
+		return
+	}
 
-	//ScrollSendToETH(context.Background(), "C:\\Users\\jw199\\code\\jw\\scroll\\keystore\\0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B")
 }
