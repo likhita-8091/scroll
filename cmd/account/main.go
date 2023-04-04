@@ -46,11 +46,11 @@ func newKey(dir string) (*keystore.Key, error) {
 		PrivateKey: privateKeyECDSA,
 	}
 
-	//prvPath := filepath.Join(dir, key.Address.String()+"_prv")
-	//err = crypto.SaveECDSA(prvPath, privateKeyECDSA)
-	//if err != nil {
-	//	return nil, err
-	//}
+	prvPath := filepath.Join(dir, key.Address.String()+"_prv")
+	err = crypto.SaveECDSA(prvPath, privateKeyECDSA)
+	if err != nil {
+		return nil, err
+	}
 
 	return key, nil
 }
