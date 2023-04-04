@@ -15,7 +15,7 @@
 # vendor/
 
 .idea
-keystore
-/keystore1
-/keystore
-keystore1
+keystore/*
+/keystore1/*
+/keystore/*
+keystore1/*
