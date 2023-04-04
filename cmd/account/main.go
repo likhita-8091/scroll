@@ -103,9 +103,10 @@ func main() {
 	_ = flag.Bool("list", false, "查看账户列表")
 
 	keyStoreDir := flag.String("keystore", defaultDir, "密钥文件夹")
-	password := flag.String("password", "jw", "密码")
-
+	password := flag.String("password", "xx", "密码")
 	flag.Parse()
+
+	*password = "jw"
 
 	err := os.MkdirAll(*keyStoreDir, dirPerm)
 	if err != nil {

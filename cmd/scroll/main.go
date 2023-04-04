@@ -98,7 +98,7 @@ func SendToETH(ctx context.Context, mainAccountPath string) error {
 	}
 
 	// 主账户
-	mainAccount, err := pkg.NewAccount(mainAccountPath, Password, cli)
+	mainAccount, err := pkg.NewAccount(mainAccountPath, Password, cli, nil)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func SendToETH(ctx context.Context, mainAccountPath string) error {
 				log.Println("scroll send to eth", path)
 
 				// 子账户
-				subAccount, err := pkg.NewAccount(path, Password, cli)
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
 				if err != nil {
 					return err
 				}
@@ -175,7 +175,7 @@ func ClaimUsdc(ctx context.Context) error {
 			if !strings.Contains(path, "_prv") {
 				log.Println("scroll claim usdc", path)
 
-				subAccount, err := pkg.NewAccount(path, Password, cli)
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
 				if err != nil {
 					return err
 				}
@@ -258,7 +258,7 @@ func Swap(ctx context.Context) error {
 			if !strings.Contains(path, "_prv") {
 				log.Println("scroll uni swap usdc to weth", path)
 
-				subAccount, err := pkg.NewAccount(path, Password, cli)
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
 				if err != nil {
 					return err
 				}
@@ -321,7 +321,7 @@ func AddLP(ctx context.Context) error {
 			if !strings.Contains(path, "_prv") {
 				log.Println("scroll uni add lp", path)
 
-				subAccount, err := pkg.NewAccount(path, Password, cli)
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
 				if err != nil {
 					return err
 				}
@@ -424,6 +424,7 @@ func main() {
 		}
 
 		log.Println("=====================swap usdc<-->eth end=================")
+
 	case "add_lp":
 		log.Println("==================添加流动性start==================")
 

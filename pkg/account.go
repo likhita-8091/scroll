@@ -26,13 +26,13 @@ type Account struct {
 	key      *keystore.Key
 
 	scrollCli *ScrollClient
+	ethCli    *EthClient
 }
 
 // NewAccount new账户
-func NewAccount(addressPath string, password string, scrollCli *ScrollClient) (*Account, error) {
-	// 设置cli
-	if scrollCli == nil {
-		return nil, errors.New("scroll client is nil")
+func NewAccount(addressPath string, password string, scrollCli *ScrollClient, ethCli *EthClient) (*Account, error) {
+	if scrollCli == nil && ethCli == nil {
+		return nil, errors.New("cli not set")
 	}
 
 	// 加载keystore
@@ -51,6 +51,7 @@ func NewAccount(addressPath string, password string, scrollCli *ScrollClient) (*
 		password:  password,
 		key:       key,
 		scrollCli: scrollCli,
+		ethCli:    ethCli,
 	}, nil
 }
 
@@ -58,13 +59,33 @@ func (a *Account) GetScrollCli() *ethclient.Client {
 	return a.scrollCli.Cli
 }
 
+func (a *Account) GetEthCli() *ethclient.Client {
+	return a.ethCli.Cli
+}
+
 func (a *Account) GetScrollChainID() *big.Int {
 	return a.scrollCli.ChainID()
+}
+
+func (a *Account) GetEthChainID() *big.Int {
+	return a.ethCli.ChainID()
 }
 
 // makeScrollChainTxOpts 构造交易选项
 func (a *Account) makeScrollChainTxOpts() (*bind.TransactOpts, error) {
 	opts, err := bind.NewTransactorWithChainID(strings.NewReader(a.keyJson), a.password, a.scrollCli.ChainID())
+	if err != nil {
+		return nil, err
+	}
+
+	// 设置交易发起人
+	opts.From = a.Address()
+	return opts, nil
+}
+
+// makeEthChainTxOpts 构造交易选项
+func (a *Account) makeEthChainTxOpts() (*bind.TransactOpts, error) {
+	opts, err := bind.NewTransactorWithChainID(strings.NewReader(a.keyJson), a.password, a.GetEthChainID())
 	if err != nil {
 		return nil, err
 	}
@@ -97,21 +118,25 @@ func (a *Account) PrintReceipt(receipt *types.Receipt) {
 	}
 }
 
-// waitMined 等待交易被打包区块并挖掘
-func (a *Account) waitMined(tx *types.Transaction) (receipt *types.Receipt, err error) {
+// waitScrollMined 等待交易被打包区块并挖掘
+func (a *Account) waitScrollMined(tx *types.Transaction) (receipt *types.Receipt, err error) {
 	return bind.WaitMined(a.scrollCli.ctx, a.scrollCli.Cli, tx)
 }
 
+func (a *Account) waitEthMined(tx *types.Transaction) (receipt *types.Receipt, err error) {
+	return bind.WaitMined(a.ethCli.ctx, a.ethCli.Cli, tx)
+}
+
 func (a *Account) Ctx() context.Context {
-	return a.scrollCli.ctx
+	return context.Background()
 }
 
 func (a *Account) Address() common.Address {
 	return a.key.Address
 }
 
-// GetGasPrice 获取gas价格
-func (a *Account) GetGasPrice() (*big.Int, error) {
+// GetScrollGasPrice 获取gas价格
+func (a *Account) GetScrollGasPrice() (*big.Int, error) {
 	gasPrice, err := a.scrollCli.Cli.SuggestGasPrice(a.Ctx())
 	if err != nil {
 		return nil, fmt.Errorf("get gas price error: %v\n", err.Error())
@@ -121,12 +146,37 @@ func (a *Account) GetGasPrice() (*big.Int, error) {
 	return gasPrice, nil
 }
 
-// GetNonce 获取nonce
-func (a *Account) GetNonce() (*big.Int, error) {
+// GetEthGasPrice 获取gas价格
+func (a *Account) GetEthGasPrice() (*big.Int, error) {
+	gasPrice, err := a.ethCli.Cli.SuggestGasPrice(a.Ctx())
+	if err != nil {
+		return nil, fmt.Errorf("get gas price error: %v\n", err.Error())
+	}
 
-	time.Sleep(1200 * time.Millisecond)
+	log.Println("gas price ok ", gasPrice.String())
+	return gasPrice, nil
+}
+
+// GetScrollChainNonce 获取nonce
+func (a *Account) GetScrollChainNonce() (*big.Int, error) {
+
+	time.Sleep(800 * time.Millisecond)
 
 	nonce, err := a.scrollCli.Cli.PendingNonceAt(a.Ctx(), a.Address())
+	if err != nil {
+		return nil, fmt.Errorf("get nonce error: %v\n", err.Error())
+	}
+
+	log.Println("get nonce ok  ", nonce)
+	return new(big.Int).SetUint64(nonce), nil
+}
+
+// GetEthChainNonce 获取nonce
+func (a *Account) GetEthChainNonce() (*big.Int, error) {
+
+	time.Sleep(800 * time.Millisecond)
+
+	nonce, err := a.ethCli.Cli.PendingNonceAt(a.Ctx(), a.Address())
 	if err != nil {
 		return nil, fmt.Errorf("get nonce error: %v\n", err.Error())
 	}
@@ -142,12 +192,12 @@ func (a *Account) ClaimUSDC() error {
 		return fmt.Errorf("make usdc tx opts error：%v", err.Error())
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
 
-	price, err := a.GetGasPrice()
+	price, err := a.GetScrollGasPrice()
 	if err != nil {
 		return err
 	}
@@ -163,7 +213,7 @@ func (a *Account) ClaimUSDC() error {
 
 	a.PrintTx(txRes, "claim usdc 交易数据: ")
 
-	receipt, err := a.waitMined(txRes)
+	receipt, err := a.waitScrollMined(txRes)
 	if err != nil {
 		return fmt.Errorf("wait usdc claim error: %v\n", err.Error())
 	}
@@ -188,12 +238,12 @@ func (a *Account) ApproveUSDC(toAddress string, amount *big.Int) error {
 		return err
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
 
-	price, err := a.GetGasPrice()
+	price, err := a.GetScrollGasPrice()
 	if err != nil {
 		return err
 	}
@@ -208,7 +258,7 @@ func (a *Account) ApproveUSDC(toAddress string, amount *big.Int) error {
 
 	a.PrintTx(approve, "approve usdc")
 
-	mined, err := a.waitMined(approve)
+	mined, err := a.waitScrollMined(approve)
 	if err != nil {
 		return err
 	}
@@ -230,12 +280,12 @@ func (a *Account) ApproveETH(toAddress string, amount *big.Int) error {
 		return err
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
 
-	price, err := a.GetGasPrice()
+	price, err := a.GetScrollGasPrice()
 	if err != nil {
 		return err
 	}
@@ -250,7 +300,7 @@ func (a *Account) ApproveETH(toAddress string, amount *big.Int) error {
 
 	a.PrintTx(approve, "approve weth")
 
-	mined, err := a.waitMined(approve)
+	mined, err := a.waitScrollMined(approve)
 	if err != nil {
 		return err
 	}
@@ -267,12 +317,12 @@ func (a *Account) SwapEth2WEth(amount *big.Int) error {
 		return err
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
 
-	price, err := a.GetGasPrice()
+	price, err := a.GetScrollGasPrice()
 	if err != nil {
 		return err
 	}
@@ -289,7 +339,7 @@ func (a *Account) SwapEth2WEth(amount *big.Int) error {
 
 	a.PrintTx(deposit, "swap eth to weth")
 
-	mined, err := a.waitMined(deposit)
+	mined, err := a.waitScrollMined(deposit)
 	if err != nil {
 		return err
 	}
@@ -327,7 +377,7 @@ func (a *Account) MultiCall(amount *big.Int) error {
 		return err
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
@@ -344,7 +394,7 @@ func (a *Account) MultiCall(amount *big.Int) error {
 
 	a.PrintTx(txData, "swap usdc to weth")
 
-	mined, err := a.waitMined(txData)
+	mined, err := a.waitScrollMined(txData)
 	if err != nil {
 		return err
 	}
@@ -356,31 +406,12 @@ func (a *Account) MultiCall(amount *big.Int) error {
 }
 
 func (a *Account) AddLP() error {
-	// 批准：授权人、数量
-	//toAddress := "0xbd1a5920303f45d628630e88afbaf012ba078f37"
-	//a1 := big.NewInt(1000000000000000000)
-	//b1 := new(big.Int).Mul(a1, big.NewInt(10000))
-	//// 批准usdc
-	//err := a.ApproveUSDC(toAddress, b1)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//time.Sleep(2 * time.Second)
-	//
-	//// 批准weth
-	//err = a.ApproveETH(toAddress, b1)
-	//if err != nil {
-	//	return err
-	//}
-	//time.Sleep(2 * time.Second)
-
 	opts, err := a.makeScrollChainTxOpts()
 	if err != nil {
 		return err
 	}
 
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
@@ -419,7 +450,7 @@ func (a *Account) AddLP() error {
 
 	a.PrintTx(mint, "add uni lp")
 
-	mined, err := a.waitMined(mint)
+	mined, err := a.waitScrollMined(mint)
 	if err != nil {
 		return err
 	}
@@ -460,12 +491,12 @@ func (a *Account) SendScroll(toAddress string) error {
 
 		b1 := new(big.Int).Div(a1, big.NewInt(100))
 
-		nonce, err := a.GetNonce()
+		nonce, err := a.GetScrollChainNonce()
 		if err != nil {
 			continue
 		}
 
-		price, err := a.GetGasPrice()
+		price, err := a.GetScrollGasPrice()
 		if err != nil {
 			continue
 		}
@@ -504,7 +535,124 @@ func (a *Account) SendScroll(toAddress string) error {
 
 		a.PrintTx(signTx, "交易发送成功")
 
-		mined, err := a.waitMined(signTx)
+		mined, err := a.waitScrollMined(signTx)
+		if err != nil {
+			continue
+		}
+
+		a.PrintReceipt(mined)
+
+		if mined.Status == types.ReceiptStatusSuccessful {
+			ok = true
+			break
+		}
+	}
+
+	if ok {
+		msg := fmt.Sprintf("========[%v] 账户交易[%v]成功========", a.Address(), toAddress)
+		log.Println(msg)
+		return nil
+	} else {
+		msg := fmt.Sprintf("========[%v]账户[%v]失败========", a.Address(), toAddress)
+		log.Println(msg)
+		return errors.New(msg)
+	}
+}
+
+// SendEth eth账户转账eth到eth账户
+func (a *Account) SendEth(toAddress string) error {
+	balance, err := a.GetEthBalance()
+	if err != nil {
+		return err
+	}
+
+	var a1 *big.Int
+	var ok bool
+
+	// 如果余额大于等于8，百分比就为99.9%
+	flag := false
+	line := new(big.Int).Mul(big.NewInt(1000000000000000000), big.NewInt(8))
+
+	if balance.Cmp(line) >= 0 {
+		flag = true
+	}
+
+	// 如果余额小于5，百分比为99.6%
+	flag1 := false
+	line1 := new(big.Int).Mul(big.NewInt(1000000000000000000), big.NewInt(5))
+	if balance.Cmp(line1) <= 0 {
+		flag1 = true
+	}
+
+	// 循环五次
+	for i := 0; i < 5; i++ {
+		if i == 0 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(999))
+		} else if i == 1 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(995))
+		} else if i == 2 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(991))
+		} else if i == 3 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(987))
+		} else if i == 4 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(982))
+		}
+
+		if flag {
+			a1 = new(big.Int).Mul(balance, big.NewInt(999))
+		}
+
+		if flag1 {
+			a1 = new(big.Int).Mul(balance, big.NewInt(990))
+		}
+
+		b1 := new(big.Int).Div(a1, big.NewInt(1000))
+
+		nonce, err := a.GetEthChainNonce()
+		if err != nil {
+			continue
+		}
+
+		price, err := a.GetEthGasPrice()
+		if err != nil {
+			continue
+		}
+
+		to := common.HexToAddress(toAddress)
+
+		// 构造交易
+		baseTx := &types.LegacyTx{
+			Nonce:    nonce.Uint64(),
+			GasPrice: new(big.Int).Add(price, big.NewInt(88120347580)),
+			Gas:      uint64(40000),
+			To:       &to,
+			Value:    b1,
+		}
+		tx := types.NewTx(baseTx)
+
+		// 交易签名
+		signer := types.LatestSignerForChainID(a.GetEthChainID())
+		signature, err := crypto.Sign(signer.Hash(tx).Bytes(), a.key.PrivateKey)
+		if err != nil {
+			log.Println("生成signature失败", err.Error())
+			continue
+		}
+		signTx, err := tx.WithSignature(signer, signature)
+		if err != nil {
+			log.Println("签名失败", err.Error())
+			continue
+		}
+
+		// 发送交易
+		err = a.GetEthCli().SendTransaction(a.Ctx(), signTx)
+		if err != nil {
+			log.Println("send signTx error", err.Error())
+			continue
+		}
+
+		a.PrintTx(signTx, "交易发送成功")
+
+		mined, err := a.waitEthMined(signTx)
 		if err != nil {
 			continue
 		}
@@ -545,6 +693,21 @@ func (a *Account) GetScrollBalance() (*big.Int, error) {
 	return balance, nil
 }
 
+func (a *Account) GetEthBalance() (*big.Int, error) {
+	balance, err := a.GetEthCli().BalanceAt(a.Ctx(), a.Address(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("[%v] 获取余额失败: %v", a.Address().String(), err.Error())
+	}
+
+	newBalance, _ := new(big.Int).SetString(balance.String(), 10)
+	b1 := new(big.Float)
+	b1.SetString(newBalance.String())
+	ethValue := new(big.Float).Quo(b1, big.NewFloat(math.Pow(10, 18)))
+
+	log.Printf("余额(ETH) [%v]：%v\n", a.Address().String(), ethValue)
+	return balance, nil
+}
+
 // ScrollWithdrawETH 将scroll链上的eth提现到eth的测试网
 func (a *Account) ScrollWithdrawETH() error {
 	txOpts, err := a.makeScrollChainTxOpts()
@@ -559,7 +722,7 @@ func (a *Account) ScrollWithdrawETH() error {
 	txOpts.Value = big.NewInt(20000000000000000)
 
 	// 获取nonce
-	nonce, err := a.GetNonce()
+	nonce, err := a.GetScrollChainNonce()
 	if err != nil {
 		return err
 	}
@@ -574,7 +737,7 @@ func (a *Account) ScrollWithdrawETH() error {
 
 	a.PrintTx(res, "WithdrawETH")
 
-	mined, err := a.waitMined(res)
+	mined, err := a.waitScrollMined(res)
 	if err != nil {
 		return err
 	}
@@ -588,4 +751,49 @@ func (a *Account) ScrollWithdrawETH() error {
 
 	log.Println("跨链交易[WithdrawETH]: ", "成功")
 	return nil
+}
+
+// EthDepositScroll 将eth链上的eth充值到scroll的测试网
+func (a *Account) EthDepositScroll() error {
+	txIDOpts, err := a.makeEthChainTxOpts()
+	if err != nil {
+		return err
+	}
+
+	nonce, err := a.GetEthChainNonce()
+	if err != nil {
+		return err
+	}
+
+	// 设置gas limit
+	txIDOpts.GasLimit = uint64(300000)
+
+	// 设置value
+	txIDOpts.Value = big.NewInt(120000000000000000)
+
+	// 设置nonce
+	txIDOpts.Nonce = nonce
+
+	res, err := a.ethCli.ScrollABI.DepositETH(txIDOpts, big.NewInt(110000000000000000), new(big.Int).SetUint64(uint64(40000)))
+	if err != nil {
+		log.Println("call Deposit Eth error: ", err.Error())
+		return err
+	}
+
+	a.PrintTx(res, "DepositETH")
+
+	receipt, err := a.waitEthMined(res)
+	if err != nil {
+		return err
+	}
+
+	a.PrintReceipt(receipt)
+	if receipt.Status == types.ReceiptStatusSuccessful {
+		log.Println("deposit eth success")
+	} else {
+		log.Println("deposit eth failed")
+	}
+
+	return nil
+
 }

@@ -311,14 +311,7 @@ func SendToScroll(ctx context.Context, mainAccountPath string) {
 
 // 加载abi合约
 func setETHABI(toAddress string) {
-	var err error
-	to := common.HexToAddress(toAddress)
 
-	abi, err = scroll_abi.NewScrollABI(to, goerliCli)
-	if err != nil {
-		log.Println("new scroll abi error: ", err.Error())
-		return
-	}
 }
 
 func setScrollABI(toAddress string) {

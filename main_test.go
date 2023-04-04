@@ -40,4 +40,7 @@ func Test2(t *testing.T) {
 }
 
 func Test3(t *testing.T) {
+	a := new(big.Int).Mul(big.NewInt(1000000000000000000), big.NewInt(8))
+	b := new(big.Int).Mul(big.NewInt(1000000000000000001), big.NewInt(8))
+	fmt.Println(new(big.Int).Div(a, b))
 }
