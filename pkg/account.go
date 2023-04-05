@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/accounts/abi"
 	"github.com/scroll-tech/go-ethereum/accounts/abi/bind"
 	"github.com/scroll-tech/go-ethereum/accounts/keystore"
 	"github.com/scroll-tech/go-ethereum/common"
@@ -14,6 +15,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"scroll/abi/deploy"
 	"scroll/abi/lp"
 	"scroll/abi/swap"
 	"strings"
@@ -380,6 +382,44 @@ func (a *Account) GetUsdcBalance() error {
 	ethValue := new(big.Float).Quo(b1, big.NewFloat(math.Pow(10, 18)))
 
 	log.Printf("usdc余额(ETH) [%v]：%v\n", a.Address().String(), ethValue)
+	return nil
+}
+
+func (a *Account) deployContract(abi abi.ABI, bin []byte) error {
+	opts, err := a.makeScrollChainTxOpts()
+	if err != nil {
+		return err
+	}
+
+	contract, t, _, err := bind.DeployContract(opts, abi, bin, a.scrollCli.Cli)
+	if err != nil {
+		return err
+	}
+	log.Println("合约地址：", contract.String())
+	a.PrintTx(t, "发布合约结果")
+
+	deployed, err := bind.WaitDeployed(a.Ctx(), a.scrollCli.Cli, t)
+	if err != nil {
+		return err
+	}
+	log.Println("等待合约发布结果：", deployed.String())
+	return nil
+}
+
+func (a *Account) DeployContract() error {
+	// 发布存储合约
+	abi1, _ := deploy.StorageABIMetaData.GetAbi()
+	err := a.deployContract(*abi1, []byte(deploy.StorageABIMetaData.Bin))
+	if err != nil {
+		return err
+	}
+
+	// 发布lock合约
+	abi2, _ := deploy.LockABIMetaData.GetAbi()
+	err = a.deployContract(*abi2, []byte(deploy.LockABIMetaData.Bin))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -880,7 +920,7 @@ func (a *Account) CancelLP() error {
 		log.Println("t4: ", t4.String())
 
 		// 97% t1  t2
-		token0 := new(big.Int).Mul(big.NewInt(1300000000000000000), big.NewInt(1000))
+		token0 := new(big.Int).Mul(big.NewInt(1150000000000000000), big.NewInt(1000))
 		token1 := big.NewInt(1531044831308660)
 
 		max := new(big.Int).Mul(t3, big.NewInt(90))

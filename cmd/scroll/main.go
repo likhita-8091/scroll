@@ -22,12 +22,13 @@ var (
 )
 
 const (
-	ScrollToETHOk       = "scroll:scroll_to_eth:send_ok:3"
-	ScrollClaimUsdc     = "scroll:claim_usdc_ok:2"
-	ScrollSwapUsdc2WEth = "scroll:swap_ok:1"
-	ScrollAddLP         = "scroll:add_lp:1"
-	ScrollCancelLP      = "scroll:cancel_lp:1"
-	ScrollApproveUsdc   = "scroll:approve_usdc_ok:1"
+	ScrollToETHOk        = "scroll:scroll_to_eth:send_ok:3"
+	ScrollClaimUsdc      = "scroll:claim_usdc_ok:2"
+	ScrollSwapUsdc2WEth  = "scroll:swap_ok:1"
+	ScrollAddLP          = "scroll:add_lp:1"
+	ScrollCancelLP       = "scroll:cancel_lp:1"
+	ScrollDeployContract = "scroll:deploy_contract:1"
+	ScrollApproveUsdc    = "scroll:approve_usdc_ok:1"
 )
 
 func before() {
@@ -422,6 +423,7 @@ func CancelLP(ctx context.Context) error {
 				err = subAccount.CancelLP()
 				if err != nil {
 					log.Println("cancel uni lp error", err)
+					return err
 				}
 
 				// 添加到redis
@@ -487,10 +489,68 @@ func GetUsdcBalance(ctx context.Context) error {
 	return nil
 }
 
+func Deploy(ctx context.Context) error {
+	cli, err := pkg.NewScrollClient(ctx, ScrollAPI)
+	if err != nil {
+		return err
+	}
+
+	for i := 1; i < 11; i++ {
+
+		dir1 := filepath.Join(KeyStoreDir, strconv.Itoa(i))
+		log.Println("==========遍历文件夹==========: ", dir1)
+		err := filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Println(err)
+				log.Println(path)
+				return nil
+			}
+			if info.IsDir() {
+				log.Println("skip dir")
+				return nil
+			}
+
+			if !strings.Contains(path, "_prv") {
+				log.Println("scroll deploy contract", path)
+
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
+				if err != nil {
+					return err
+				}
+
+				exist, err := redisCli.SIsMember(ctx, ScrollDeployContract, subAccount.Address().String()).Result()
+				if err != nil {
+					log.Println("redis 调用错误：", err.Error())
+					return err
+				}
+
+				if exist {
+					log.Println("skip deploy contract", subAccount.Address().String())
+					return nil
+				}
+
+				err = subAccount.DeployContract()
+				if err != nil {
+					log.Println("scroll deploy contract", err)
+				}
+
+				redisCli.SAdd(ctx, ScrollDeployContract, subAccount.Address().String())
+				time.Sleep(500 * time.Millisecond)
+			}
+			return nil
+		})
+		if err != nil {
+			log.Println("err", err.Error())
+			continue
+		}
+	}
+	return nil
+}
+
 func main() {
 	keyStoreDir := flag.String("keystore", "/Users/jiangziya/code/github/scroll/cmd/account/keystore", "密钥文件夹")
 	password := flag.String("password", "jw", "密码")
-	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp、cancel_lp、usdc_balance")
+	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp、cancel_lp、usdc_balance、deploy_contract")
 	flag.Parse()
 
 	KeyStoreDir = *keyStoreDir
@@ -561,5 +621,12 @@ func main() {
 			return
 		}
 		log.Println("=====================获取usdc余额=================")
+	case "deploy_contract":
+		log.Println("==================发布合约==================")
+		err := GetUsdcBalance(context.Background())
+		if err != nil {
+			return
+		}
+		log.Println("=====================发布合约=================")
 	}
 }

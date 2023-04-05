@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	scroll_abi "scroll/abi"
+	"scroll/abi/deploy"
 	"scroll/abi/lp"
 	"scroll/abi/swap"
 	"scroll/abi/usdc"
@@ -31,6 +32,8 @@ type ScrollClient struct {
 	WEthABI     *weth.WEthABI
 	L2ABI       *scroll_abi.L2ABI
 	LPABI       *lp.LPABI
+
+	StorageABI *deploy.StorageABI
 }
 
 func NewScrollClient(ctx context.Context, url string) (*ScrollClient, error) {
@@ -154,7 +157,6 @@ func (s *ScrollClient) SetTestUsdcABI(contractAddress string) error {
 // SetSwapABI 0xD9880690bd717189cC3Fbe7B9020F27fae7Ac76F
 func (s *ScrollClient) SetSwapABI(contractAddress string) error {
 	to := common.HexToAddress(contractAddress)
-
 	a, err := swap.NewSwapABI(to, s.Cli)
 	if err != nil {
 		return fmt.Errorf("load swap abi error: %v\n", err.Error())
