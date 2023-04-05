@@ -364,6 +364,25 @@ func (a *Account) SwapUSDC2ETH(amount *big.Int) ([]byte, error) {
 	return abi.Pack("exactInputSingle", param)
 }
 
+func (a *Account) GetUsdcBalance() error {
+	opts := &bind.CallOpts{
+		From: a.Address(),
+	}
+
+	balance, err := a.scrollCli.TestUSDCABI.BalanceOf(opts, a.Address())
+	if err != nil {
+		return err
+	}
+
+	newBalance, _ := new(big.Int).SetString(balance.String(), 10)
+	b1 := new(big.Float)
+	b1.SetString(newBalance.String())
+	ethValue := new(big.Float).Quo(b1, big.NewFloat(math.Pow(10, 18)))
+
+	log.Printf("usdc余额(ETH) [%v]：%v\n", a.Address().String(), ethValue)
+	return nil
+}
+
 func (a *Account) MultiCall(amount *big.Int) error {
 
 	// 先判断usdc余额，我们领取了5000枚usdc，swap已经换2200枚usdc，只剩下大概2800枚。如果小于等于2800，那说明已经换成功了，
@@ -455,7 +474,7 @@ func (a *Account) AddLP() error {
 		>>> 1300/520000
 		=0.0025  这个0.0025是不对的，你得用新的0.002141，多少倍自己换算一下
 	*/
-	token1 := new(big.Int).Div(token0, big.NewInt(520000))
+	token1 := new(big.Int).Div(token0, big.NewInt(640000))
 	token1Min := new(big.Int).Mul(token1, big.NewInt(9))
 	token1Min = new(big.Int).Div(token1Min, big.NewInt(10))
 	params := lp.INonfungiblePositionManagerMintParams{

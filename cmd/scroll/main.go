@@ -440,10 +440,57 @@ func CancelLP(ctx context.Context) error {
 	return nil
 }
 
+// GetUsdcBalance 获取usdc余额
+func GetUsdcBalance(ctx context.Context) error {
+	cli, err := pkg.NewScrollClient(ctx, ScrollAPI)
+	if err != nil {
+		return err
+	}
+
+	for i := 1; i < 11; i++ {
+
+		dir1 := filepath.Join(KeyStoreDir, strconv.Itoa(i))
+		log.Println("==========遍历文件夹==========: ", dir1)
+		err := filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Println(err)
+				log.Println(path)
+				return nil
+			}
+			if info.IsDir() {
+				log.Println("skip dir")
+				return nil
+			}
+
+			if !strings.Contains(path, "_prv") {
+				log.Println("scroll get usdc balance", path)
+
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
+				if err != nil {
+					return err
+				}
+
+				err = subAccount.GetUsdcBalance()
+				if err != nil {
+					log.Println("scroll get usdc balance", err)
+				}
+
+				time.Sleep(500 * time.Millisecond)
+			}
+			return nil
+		})
+		if err != nil {
+			log.Println("err", err.Error())
+			continue
+		}
+	}
+	return nil
+}
+
 func main() {
 	keyStoreDir := flag.String("keystore", "/Users/jiangziya/code/github/scroll/cmd/account/keystore", "密钥文件夹")
 	password := flag.String("password", "jw", "密码")
-	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp、cancel_lp")
+	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp、cancel_lp、usdc_balance")
 	flag.Parse()
 
 	KeyStoreDir = *keyStoreDir
@@ -507,5 +554,12 @@ func main() {
 		}
 
 		log.Println("=====================取消流动性end=================")
+	case "usdc_balance":
+		log.Println("==================获取usdc余额==================")
+		err := GetUsdcBalance(context.Background())
+		if err != nil {
+			return
+		}
+		log.Println("=====================获取usdc余额=================")
 	}
 }
