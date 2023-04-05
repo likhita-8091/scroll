@@ -532,6 +532,7 @@ func Deploy(ctx context.Context) error {
 				err = subAccount.DeployContract()
 				if err != nil {
 					log.Println("scroll deploy contract", err)
+					return err
 				}
 
 				redisCli.SAdd(ctx, ScrollDeployContract, subAccount.Address().String())
@@ -623,7 +624,7 @@ func main() {
 		log.Println("=====================获取usdc余额=================")
 	case "deploy_contract":
 		log.Println("==================发布合约==================")
-		err := GetUsdcBalance(context.Background())
+		err := Deploy(context.Background())
 		if err != nil {
 			return
 		}
