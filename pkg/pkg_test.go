@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	ScrollAPI = "https://alpha-rpc.scroll.io/l2"
+	ScrollAPI = "https://scroll-alphanet.public.blastapi.io"
 	GoerliAPI = "https://rpc.ankr.com/eth_goerli"
 	Password  = "jw"
 )
@@ -29,6 +29,67 @@ func TestUSDCClaim(t *testing.T) {
 	}
 
 	t.Log("claim usdc ok")
+}
+
+func TestAccount_GetLPTokenID(t *testing.T) {
+	cli, err := NewScrollClient(context.Background(), ScrollAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/Users/jiangziya/.scroll/account/keystore/8/0xFbEC5fb1bd2919579930AFAD65e4361d1c9fd127"
+	//path := "/Users/jiangziya/.scroll/account/keystore/0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B"
+	account, err := NewAccount(path, Password, cli, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := account.GetLPTokenID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("get tokenID ok", list)
+}
+
+func TestAccount_CancelLP(t *testing.T) {
+	cli, err := NewScrollClient(context.Background(), ScrollAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//path := "/Users/jiangziya/.scroll/account/keystore/8/0xFbEC5fb1bd2919579930AFAD65e4361d1c9fd127"
+	path := "/Users/jiangziya/.scroll/account/keystore/0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B"
+	account, err := NewAccount(path, Password, cli, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = account.CancelLP()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("cancel lp ok")
+}
+
+func TestAccount_ScrollWithdrawETH(t *testing.T) {
+	cli, err := NewScrollClient(context.Background(), ScrollAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	account, err := NewAccount("/Users/jiangziya/.scroll/account/keystore3/1/0x7D3280482E9ecb264Fc29C45cE2c4b0d17F7fBfb", Password, cli, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = account.ScrollWithdrawETH()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("withdraw eth ok")
 }
 
 func TestSwapUSDC2ETH(t *testing.T) {

@@ -16,16 +16,17 @@ import (
 
 var (
 	KeyStoreDir = ""
-	ScrollAPI   = "https://alpha-rpc.scroll.io/l2"
+	ScrollAPI   = "https://scroll-alphanet.public.blastapi.io"
 	Password    = "jw"
 	redisCli    = new(redis.Client)
 )
 
 const (
-	ScrollToETHOk       = "scroll:scroll_to_eth:send_ok:2"
-	ScrollClaimUsdc     = "scroll:claim_usdc_ok:1"
+	ScrollToETHOk       = "scroll:scroll_to_eth:send_ok:3"
+	ScrollClaimUsdc     = "scroll:claim_usdc_ok:2"
 	ScrollSwapUsdc2WEth = "scroll:swap_ok:1"
 	ScrollAddLP         = "scroll:add_lp:1"
+	ScrollCancelLP      = "scroll:cancel_lp:1"
 	ScrollApproveUsdc   = "scroll:approve_usdc_ok:1"
 )
 
@@ -60,7 +61,7 @@ func scrollSendToETH(ctx context.Context, mainAccount, subAccount *pkg.Account) 
 
 	log.Printf("主 [%v] 转账余额的98%%到子账户 [%v] : 成功\n", mainAccount.Address().String(), subAccount.Address().String())
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	//转完之后，查看一下子账户的余额
 	_, err = subAccount.GetScrollBalance()
@@ -71,6 +72,7 @@ func scrollSendToETH(ctx context.Context, mainAccount, subAccount *pkg.Account) 
 	// 跨链交易，scroll转账到eth
 	err = subAccount.ScrollWithdrawETH()
 	if err != nil {
+		log.Fatal(err)
 		return nil, err
 	}
 
@@ -198,8 +200,6 @@ func ClaimUsdc(ctx context.Context) error {
 
 					log.Println("claim usdc ok: ", subAccount.Address().String())
 				}
-
-				time.Sleep(1 * time.Second)
 
 				exist, err = redisCli.SIsMember(ctx, ScrollApproveUsdc, subAccount.Address().String()).Result()
 				if err != nil {
@@ -377,10 +377,72 @@ func AddLP(ctx context.Context) error {
 	return nil
 }
 
+// CancelLP 取消流动性
+func CancelLP(ctx context.Context) error {
+	cli, err := pkg.NewScrollClient(ctx, ScrollAPI)
+	if err != nil {
+		return err
+	}
+
+	for i := 1; i < 11; i++ {
+
+		dir1 := filepath.Join(KeyStoreDir, strconv.Itoa(i))
+		log.Println("==========遍历文件夹==========: ", dir1)
+		err := filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Println(err)
+				log.Println(path)
+				return nil
+			}
+			if info.IsDir() {
+				log.Println("skip dir")
+				return nil
+			}
+
+			if !strings.Contains(path, "_prv") {
+				log.Println("scroll uni cancel lp", path)
+
+				subAccount, err := pkg.NewAccount(path, Password, cli, nil)
+				if err != nil {
+					return err
+				}
+
+				exist, err := redisCli.SIsMember(ctx, ScrollCancelLP, subAccount.Address().String()).Result()
+				if err != nil {
+					log.Println("redis 调用错误：", err.Error())
+					return err
+				}
+
+				if exist {
+					log.Println("skip cancel uni lp", subAccount.Address().String())
+					return nil
+				}
+
+				err = subAccount.CancelLP()
+				if err != nil {
+					log.Println("cancel uni lp error", err)
+				}
+
+				// 添加到redis
+				redisCli.SAdd(ctx, ScrollCancelLP, subAccount.Address().String())
+				log.Println("cancel uni lp ok: ", subAccount.Address().String())
+
+				time.Sleep(1 * time.Second)
+			}
+			return nil
+		})
+		if err != nil {
+			log.Println("err", err.Error())
+			continue
+		}
+	}
+	return nil
+}
+
 func main() {
 	keyStoreDir := flag.String("keystore", "/Users/jiangziya/code/github/scroll/cmd/account/keystore", "密钥文件夹")
 	password := flag.String("password", "jw", "密码")
-	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp")
+	cmd := flag.String("cmd", "send_to_eth", "cmd：send_to_eth、claim_usdc、swap、add_lp、cancel_lp")
 	flag.Parse()
 
 	KeyStoreDir = *keyStoreDir
@@ -396,7 +458,7 @@ func main() {
 
 		log.Println("==================send to weth start==================")
 
-		err := SendToETH(context.Background(), filepath.Join(KeyStoreDir, "0x69b0b7f5079201D4d34C66A8AD7De56607F7dc40"))
+		err := SendToETH(context.Background(), filepath.Join(KeyStoreDir, "0x42e11b1f3D41295036E6cA1b0a98453837873Dc4"))
 		if err != nil {
 			log.Println(err)
 			return
@@ -434,5 +496,15 @@ func main() {
 		}
 
 		log.Println("=====================添加流动性end=================")
+
+	case "cancel_lp":
+		log.Println("==================取消流动性start==================")
+
+		err := CancelLP(context.Background())
+		if err != nil {
+			log.Println(err)
+		}
+
+		log.Println("=====================取消流动性end=================")
 	}
 }

@@ -478,18 +478,18 @@ func (a *Account) SendScroll(toAddress string) error {
 	// 循环五次
 	for i := 0; i < 5; i++ {
 		if i == 0 {
-			a1 = new(big.Int).Mul(balance, big.NewInt(99))
+			a1 = new(big.Int).Mul(balance, big.NewInt(999))
 		} else if i == 1 {
-			a1 = new(big.Int).Mul(balance, big.NewInt(97))
+			a1 = new(big.Int).Mul(balance, big.NewInt(995))
 		} else if i == 2 {
-			a1 = new(big.Int).Mul(balance, big.NewInt(96))
+			a1 = new(big.Int).Mul(balance, big.NewInt(990))
 		} else if i == 3 {
-			a1 = new(big.Int).Mul(balance, big.NewInt(95))
+			a1 = new(big.Int).Mul(balance, big.NewInt(987))
 		} else if i == 4 {
-			a1 = new(big.Int).Mul(balance, big.NewInt(94))
+			a1 = new(big.Int).Mul(balance, big.NewInt(982))
 		}
 
-		b1 := new(big.Int).Div(a1, big.NewInt(100))
+		b1 := new(big.Int).Div(a1, big.NewInt(1000))
 
 		nonce, err := a.GetScrollChainNonce()
 		if err != nil {
@@ -678,7 +678,6 @@ func (a *Account) SendEth(toAddress string) error {
 
 // GetScrollBalance 获取scroll账户余额
 func (a *Account) GetScrollBalance() (*big.Int, error) {
-
 	balance, err := a.GetScrollCli().BalanceAt(a.Ctx(), a.Address(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("[%v] 获取余额失败: %v", a.Address().String(), err.Error())
@@ -716,10 +715,10 @@ func (a *Account) ScrollWithdrawETH() error {
 	}
 
 	// 设置gas limit
-	txOpts.GasLimit = uint64(300000)
+	txOpts.GasLimit = uint64(260103)
 
 	// 设置value
-	txOpts.Value = big.NewInt(20000000000000000)
+	txOpts.Value = big.NewInt(110000000000000000)
 
 	// 获取nonce
 	nonce, err := a.GetScrollChainNonce()
@@ -730,7 +729,7 @@ func (a *Account) ScrollWithdrawETH() error {
 	// 设置nonce
 	txOpts.Nonce = nonce
 
-	res, err := a.scrollCli.L2ABI.WithdrawETH0(txOpts, big.NewInt(18002100000000000), new(big.Int).SetUint64(uint64(160000)))
+	res, err := a.scrollCli.L2ABI.WithdrawETH0(txOpts, big.NewInt(20000000000000000), new(big.Int).SetUint64(uint64(160000)))
 	if err != nil {
 		return fmt.Errorf("call WithdrawETH error: %v\nf", err.Error())
 	}
@@ -796,4 +795,202 @@ func (a *Account) EthDepositScroll() error {
 
 	return nil
 
+}
+
+// CancelLP 取消lp流动性挖矿
+func (a *Account) CancelLP() error {
+	tokenIDList, err := a.GetLPTokenID()
+	if err != nil {
+		return err
+	}
+
+	for _, tokenID := range tokenIDList {
+		opts, err := a.makeScrollChainTxOpts()
+		if err != nil {
+			return err
+		}
+
+		nonce, err := a.GetScrollChainNonce()
+		if err != nil {
+			return err
+		}
+
+		liquidity, t1, t2, t3, t4, err := a.GetLP(tokenID)
+		if err != nil {
+			return err
+		}
+
+		opts.GasLimit = 400000
+		opts.Nonce = nonce
+		deadline := time.Now().Add(5 * time.Minute).Unix()
+
+		log.Println("tokenID: ", tokenID.String())
+		log.Println("liquidity: ", liquidity.String())
+		log.Println("t1: ", t1.String())
+		log.Println("t2: ", t2.String())
+		log.Println("t3: ", t3.String())
+		log.Println("t4: ", t4.String())
+
+		// 97% t1  t2
+		token0 := new(big.Int).Mul(big.NewInt(1300000000000000000), big.NewInt(1000))
+		token1 := big.NewInt(1531044831308660)
+
+		max := new(big.Int).Mul(t3, big.NewInt(90))
+		max = new(big.Int).Div(max, big.NewInt(100))
+
+		max1 := new(big.Int).Mul(t4, big.NewInt(90))
+		max1 = new(big.Int).Div(max1, big.NewInt(100))
+
+		param := lp.INonfungiblePositionManagerDecreaseLiquidityParams{
+			TokenId:    tokenID,
+			Liquidity:  liquidity,
+			Amount0Min: token0,
+			Amount1Min: token1,
+			Deadline:   big.NewInt(deadline),
+		}
+
+		abi, err := lp.LPABIMetaData.GetAbi()
+		if err != nil {
+			return err
+		}
+
+		data, _ := abi.Pack("decreaseLiquidity", param)
+
+		ss, _ := new(big.Int).SetString("340282366920938463463374607431768211455", 10)
+		p := lp.INonfungiblePositionManagerCollectParams{
+			TokenId:    tokenID,
+			Recipient:  common.HexToAddress("0x0000000000000000000000000000000000000000"),
+			Amount0Max: ss,
+			Amount1Max: ss,
+		}
+
+		param1, _ := abi.Pack("collect", p)
+		param2, _ := abi.Pack("unwrapWETH9", token1, a.Address())
+		param3, _ := abi.Pack("sweepToken", common.HexToAddress(UsdcCoin), token0, a.Address())
+
+		// 取消流动性挖矿
+		res, err := a.scrollCli.LPABI.Multicall(opts, [][]byte{data, param1, param2, param3})
+		if err != nil {
+			return err
+		}
+		a.PrintTx(res, "cancel lp token")
+
+		receipt, err := a.waitScrollMined(res)
+		if err != nil {
+			return err
+		}
+		a.PrintReceipt(receipt)
+
+		if receipt.Status == types.ReceiptStatusFailed {
+			// try
+			a.Collect(p)
+			a.UnwrapWETH9(token1, a.Address())
+			a.SweepToken(common.HexToAddress(UsdcCoin), token0, a.Address())
+		} else {
+			log.Println("cancel lp ok")
+		}
+	}
+
+	return nil
+}
+
+func (a *Account) Collect(p lp.INonfungiblePositionManagerCollectParams) {
+	opts, _ := a.makeScrollChainTxOpts()
+	nonce, _ := a.GetScrollChainNonce()
+	opts.Nonce = nonce
+	opts.GasLimit = 400000
+
+	collect, err := a.scrollCli.LPABI.Collect(opts, p)
+	if err != nil {
+		return
+	}
+
+	a.PrintTx(collect, "collect")
+
+	mined, err := a.waitScrollMined(collect)
+	if err != nil {
+		return
+	}
+
+	a.PrintReceipt(mined)
+}
+
+func (a *Account) UnwrapWETH9(amount *big.Int, address common.Address) {
+	opts, _ := a.makeScrollChainTxOpts()
+	nonce, _ := a.GetScrollChainNonce()
+	opts.Nonce = nonce
+	opts.GasLimit = 400000
+
+	weth9, err := a.scrollCli.LPABI.UnwrapWETH9(opts, amount, address)
+	if err != nil {
+		return
+	}
+
+	a.PrintTx(weth9, "weth9")
+
+	mined, err := a.waitScrollMined(weth9)
+	if err != nil {
+		return
+	}
+
+	a.PrintReceipt(mined)
+}
+
+func (a *Account) SweepToken(token common.Address, amount *big.Int, address common.Address) {
+	opts, _ := a.makeScrollChainTxOpts()
+	nonce, _ := a.GetScrollChainNonce()
+	opts.Nonce = nonce
+	opts.GasLimit = 400000
+
+	sweepTokenRes, err := a.scrollCli.LPABI.SweepToken(opts, token, amount, address)
+	if err != nil {
+		return
+	}
+
+	a.PrintTx(sweepTokenRes, "sweepTokenRes")
+
+	mined, err := a.waitScrollMined(sweepTokenRes)
+	if err != nil {
+		return
+	}
+
+	a.PrintReceipt(mined)
+}
+
+func (a *Account) GetLP(tokenID *big.Int) (*big.Int, *big.Int, *big.Int, *big.Int, *big.Int, error) {
+	opts := &bind.CallOpts{
+		From: a.Address(),
+	}
+	positions, err := a.scrollCli.LPABI.Positions(opts, tokenID)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	return positions.Liquidity, positions.TokensOwed0, positions.TokensOwed1, positions.FeeGrowthInside0LastX128, positions.FeeGrowthInside1LastX128, nil
+}
+
+// GetLPTokenID 获取lp的tokenID
+func (a *Account) GetLPTokenID() ([]*big.Int, error) {
+	// 先获取账户下有多少个index，也就是数量，注意，这个index索引从1开始
+	opts := &bind.CallOpts{
+		From: a.Address(),
+	}
+
+	num, err := a.scrollCli.LPABI.BalanceOf(opts, a.Address())
+	if err != nil {
+		return nil, err
+
+	}
+
+	// 有了数量就可以循环去获取该索引的tokenID
+	var tokenIDList []*big.Int
+	for i := 0; i < int(num.Int64()); i++ {
+		tokenID, err2 := a.scrollCli.LPABI.TokenOfOwnerByIndex(opts, a.Address(), big.NewInt(int64(i)))
+		if err2 != nil {
+			return nil, err
+		}
+		tokenIDList = append(tokenIDList, tokenID)
+	}
+
+	return tokenIDList, err
 }
