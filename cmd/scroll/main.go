@@ -359,6 +359,7 @@ func AddLP(ctx context.Context) error {
 				err = subAccount.AddLP()
 				if err != nil {
 					log.Println("add uni lp error", err)
+					return err
 				}
 
 				// 添加到redis

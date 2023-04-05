@@ -365,6 +365,27 @@ func (a *Account) SwapUSDC2ETH(amount *big.Int) ([]byte, error) {
 }
 
 func (a *Account) MultiCall(amount *big.Int) error {
+
+	// 先判断usdc余额，我们领取了5000枚usdc，swap已经换2200枚usdc，只剩下大概2800枚。如果小于等于2800，那说明已经换成功了，
+	opts := &bind.CallOpts{
+		From: a.Address(),
+	}
+
+	balance, err := a.scrollCli.TestUSDCABI.BalanceOf(opts, a.Address())
+	if err != nil {
+		return err
+	}
+	log.Println("usdc余额", balance.String())
+
+	// 应该剩余的余额：2800
+	m1 := new(big.Int).Mul(big.NewInt(1000000000000000000), big.NewInt(2800))
+
+	// 余额如果小于2800，则不swap
+	if balance.Cmp(m1) <= 0 {
+		log.Println("usdc余额小于等于2800，不替换", a.Address().String())
+		return nil
+	}
+
 	param, err := a.SwapUSDC2ETH(amount)
 	if err != nil {
 		return err
@@ -372,7 +393,7 @@ func (a *Account) MultiCall(amount *big.Int) error {
 
 	log.Println("构造swap交易param成功")
 
-	opts, err := a.makeScrollChainTxOpts()
+	opts1, err := a.makeScrollChainTxOpts()
 	if err != nil {
 		return err
 	}
@@ -382,12 +403,12 @@ func (a *Account) MultiCall(amount *big.Int) error {
 		return err
 	}
 
-	opts.GasLimit = 150000
-	opts.Nonce = nonce
+	opts1.GasLimit = 250000
+	opts1.Nonce = nonce
 
 	deadLine := time.Now().Add(5 * time.Minute).Unix()
 
-	txData, err := a.scrollCli.SwapABI.Multicall0(opts, big.NewInt(deadLine), [][]byte{param})
+	txData, err := a.scrollCli.SwapABI.Multicall0(opts1, big.NewInt(deadLine), [][]byte{param})
 	if err != nil {
 		return err
 	}
@@ -400,9 +421,13 @@ func (a *Account) MultiCall(amount *big.Int) error {
 	}
 
 	a.PrintReceipt(mined)
-	time.Sleep(2 * time.Second)
-	log.Println("swap usdc to weth ok")
-	return nil
+
+	if mined.Status == types.ReceiptStatusSuccessful {
+		log.Println("swap usdc to weth ok")
+		return nil
+	} else {
+		return errors.New("swap usdc to weth 失败")
+	}
 }
 
 func (a *Account) AddLP() error {
@@ -425,7 +450,11 @@ func (a *Account) AddLP() error {
 	token0Min := new(big.Int).Mul(token0, big.NewInt(9))
 	token0Min = new(big.Int).Div(token0Min, big.NewInt(10))
 
-	// 1.3*1000=1300
+	// 1.3*1000=1300 1300/520000
+	/*
+		>>> 1300/520000
+		=0.0025  这个0.0025是不对的，你得用新的0.002141，多少倍自己换算一下
+	*/
 	token1 := new(big.Int).Div(token0, big.NewInt(520000))
 	token1Min := new(big.Int).Mul(token1, big.NewInt(9))
 	token1Min = new(big.Int).Div(token1Min, big.NewInt(10))
