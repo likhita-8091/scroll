@@ -12,6 +12,23 @@ const (
 	Password  = "jw"
 )
 
+func TestDeployContract(t *testing.T) {
+	cli, err := NewScrollClient(context.Background(), ScrollAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	account, err := NewAccount("C:\\code\\hxy\\scroll\\keystore\\0x1b2dE9662dF9983D7E87B9C064c0F6568516eC6B", Password, cli, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = account.DeployContract()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUSDCClaim(t *testing.T) {
 	cli, err := NewScrollClient(context.Background(), ScrollAPI)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/accounts/abi"
 	"github.com/scroll-tech/go-ethereum/accounts/abi/bind"
 	"github.com/scroll-tech/go-ethereum/accounts/keystore"
 	"github.com/scroll-tech/go-ethereum/common"
@@ -385,41 +384,45 @@ func (a *Account) GetUsdcBalance() error {
 	return nil
 }
 
-func (a *Account) deployContract(abi abi.ABI, bin []byte) error {
+func (a *Account) DeployContract() error {
+	// 发布存储合约
 	opts, err := a.makeScrollChainTxOpts()
 	if err != nil {
 		return err
 	}
-
-	contract, t, _, err := bind.DeployContract(opts, abi, bin, a.scrollCli.Cli)
+	addr1, tx1, _, err := deploy.DeployStorageABI(opts, a.scrollCli.Cli)
 	if err != nil {
 		return err
 	}
-	log.Println("合约地址：", contract.String())
-	a.PrintTx(t, "发布合约结果")
 
-	deployed, err := bind.WaitDeployed(a.Ctx(), a.scrollCli.Cli, t)
+	log.Println("存储合约地址：", addr1.String())
+	a.PrintTx(tx1, "发布合约结果")
+
+	deployed, err := bind.WaitDeployed(a.Ctx(), a.scrollCli.Cli, tx1)
 	if err != nil {
 		return err
 	}
-	log.Println("等待合约发布结果：", deployed.String())
-	return nil
-}
-
-func (a *Account) DeployContract() error {
-	// 发布存储合约
-	abi1, _ := deploy.StorageABIMetaData.GetAbi()
-	err := a.deployContract(*abi1, []byte(deploy.StorageABIMetaData.Bin))
-	if err != nil {
-		return err
-	}
+	log.Println("等待完成存储合约发布完成：", deployed.String())
 
 	// 发布lock合约
-	abi2, _ := deploy.LockABIMetaData.GetAbi()
-	err = a.deployContract(*abi2, []byte(deploy.LockABIMetaData.Bin))
+	lockTime := time.Now().Add(1 * time.Hour).Unix()
+	log.Println("time", lockTime)
+
+	param := new(big.Int).Mul(big.NewInt(lockTime), big.NewInt(1000000000000000000))
+	addr2, tx2, _, err := deploy.DeployLockABI(opts, a.scrollCli.Cli, param)
 	if err != nil {
 		return err
 	}
+
+	log.Println("lock合约地址：", addr2.String())
+	a.PrintTx(tx2, "发布lock合约结果")
+
+	res, err := bind.WaitDeployed(a.Ctx(), a.scrollCli.Cli, tx2)
+	if err != nil {
+		return err
+	}
+	log.Println("等待完成lock合约发布完成：", res.String())
+
 	return nil
 }
 
